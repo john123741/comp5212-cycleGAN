@@ -11,7 +11,7 @@ class ResnetBlock(nn.Module):
                        nn.InstanceNorm2d(dim, affine=False, track_running_stats=False),
                        nn.ReLU(True),
                        nn.ReflectionPad2d(1),
-                       nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=True),
+                       nn.Conv2d(dim, dim, kernel_size=3, padding=0, bias=True),
                        nn.InstanceNorm2d(dim, affine=False, track_running_stats=False)
         )
 
