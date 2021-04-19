@@ -1,32 +1,33 @@
 from generator import ResnetGenerator
 from discriminator import NLayerDiscriminator
 from loss import GANLoss
-from torch.nn import init
 from torch.optim import lr_scheduler
 import torch
+import torch.nn as nn
 import itertools
 
 def init_net(m):
     classname = m.__class__.__name__
     if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
-        init.normal_(m.weight.data, 0.0, 0.02)
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
         if hasattr(m, 'bias') and m.bias is not None:
-            init.constant_(m.bias.data, 0.0)
+            nn.init.constant_(m.bias.data, 0.0)
     elif classname.find('BatchNorm2d') != -1:
-            init.normal_(m.weight.data, 1.0, 0.02)
-            init.constant_(m.bias.data, 0.0)
+            nn.init.normal_(m.weight.data, 1.0, 0.02)
+            nn.init.constant_(m.bias.data, 0.0)
 
-class CycleGAN:
-    def __init__(self, imgsize=(256, 256), isTrain=True):
-        self.netG_A = ResnetGenerator(3, 3)
+class CycleGAN(nn.Module):
+    def __init__(self, device, imgsize=(256, 256), isTrain=True):
+        super(CycleGAN, self).__init__()
+        self.netG_A = ResnetGenerator(3, 3).to(device)
         self.netG_A.apply(init_net)
-        self.netG_B = ResnetGenerator(3, 3)
+        self.netG_B = ResnetGenerator(3, 3).to(device)
         self.netG_B.apply(init_net)
 
         if isTrain:
-            self.netD_A = NLayerDiscriminator(3)
+            self.netD_A = NLayerDiscriminator(3).to(device)
             self.netD_A.apply(init_net)
-            self.netD_B = NLayerDiscriminator(3)
+            self.netD_B = NLayerDiscriminator(3).to(device)
             self.netD_B.apply(init_net)
 
             #self.fake_A_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
@@ -72,7 +73,7 @@ class CycleGAN:
         We also call loss_D.backward() to calculate the gradients.
         """
         # Real
-        pred_real = netD(real)
+        pred_real = netD(real)        
         loss_D_real = self.criterionGAN(pred_real, True)
         # Fake
         pred_fake = netD(fake.detach())
@@ -108,6 +109,7 @@ class CycleGAN:
         else:
             self.loss_idt_A = 0
             self.loss_idt_B = 0
+
 
         # GAN loss D_A(G_A(A))
         loss_G_A = self.criterionGAN(self.netD_A(fake_B), True)

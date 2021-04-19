@@ -13,6 +13,6 @@ class GANLoss(nn.Module):
             target_tensor = torch.tensor(1.0)
         else:
             target_tensor = torch.tensor(0.0)
-        target_tensor = target_tensor.expand_as(prediction)
+        target_tensor = target_tensor.expand_as(prediction).to(prediction.device)
         loss = self.loss(prediction, target_tensor)
         return loss
