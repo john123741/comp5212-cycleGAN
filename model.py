@@ -1,4 +1,4 @@
-from generator import ResnetGenerator
+from generator import ResnetGenerator, UNet
 from discriminator import NLayerDiscriminator
 from loss import GANLoss
 from torch.optim import lr_scheduler
@@ -19,9 +19,9 @@ def init_net(m):
 class CycleGAN(nn.Module):
     def __init__(self, device, imgsize=(256, 256), isTrain=True):
         super(CycleGAN, self).__init__()
-        self.netG_A = ResnetGenerator(3, 3).to(device)
+        self.netG_A = UNet().to(device) #ResnetGenerator(3, 3).to(device)
         self.netG_A.apply(init_net)
-        self.netG_B = ResnetGenerator(3, 3).to(device)
+        self.netG_B = UNet().to(device) #ResnetGenerator(3, 3).to(device)
         self.netG_B.apply(init_net)
 
         if isTrain:
@@ -81,35 +81,34 @@ class CycleGAN(nn.Module):
         # Combined loss and calculate gradients
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         loss_D.backward()
-        return loss_D
+        return loss_D, loss_D_real, loss_D_fake
 
     def backward_D_A(self, real_B, fake_B):
         """Calculate GAN loss for discriminator D_A"""
-        loss_D_A = self.backward_D_basic(self.netD_A, real_B, fake_B)
-        return loss_D_A
+        loss_D_A, loss_D_A_real, loss_D_A_fake = self.backward_D_basic(self.netD_A, real_B, fake_B)
+        return loss_D_A, loss_D_A_real, loss_D_A_fake
 
     def backward_D_B(self, real_A, fake_A):
         """Calculate GAN loss for discriminator D_B"""
-        loss_D_B = self.backward_D_basic(self.netD_B, real_A, fake_A)
-        return loss_D_B
+        loss_D_B, loss_D_B_real, loss_D_B_fake = self.backward_D_basic(self.netD_B, real_A, fake_A)
+        return loss_D_B, loss_D_B_real, loss_D_B_fake
 
     def backward_G(self, real_A, real_B, fake_A, fake_B, rec_A, rec_B):
         """Calculate the loss for generators G_A and G_B"""
-        lambda_idt = 10
+        lambda_idt = 0.1
         lambda_A = 10
-        lambda_B = 0.5
+        lambda_B = 10
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(real_B)
-            self.loss_idt_A = self.criterionIdt(self.idt_A, real_B) * lambda_B * lambda_idt
+            idt_A = self.netG_A(real_B)
+            loss_idt_A = self.criterionIdt(idt_A, real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(real_A)
-            self.loss_idt_B = self.criterionIdt(self.idt_B, real_A) * lambda_A * lambda_idt
+            idt_B = self.netG_B(real_A)
+            loss_idt_B = self.criterionIdt(idt_B, real_A) * lambda_A * lambda_idt
         else:
-            self.loss_idt_A = 0
-            self.loss_idt_B = 0
-
+            loss_idt_A = 0
+            loss_idt_B = 0
 
         # GAN loss D_A(G_A(A))
         loss_G_A = self.criterionGAN(self.netD_A(fake_B), True)
@@ -119,8 +118,8 @@ class CycleGAN(nn.Module):
         loss_cycle_A = self.criterionCycle(rec_A, real_A) * lambda_A
         # Backward cycle loss || G_A(G_B(B)) - B||
         loss_cycle_B = self.criterionCycle(rec_B, real_B) * lambda_B
-        # combined loss and calculate gradients
-        loss_G = loss_G_A + loss_G_B + loss_cycle_A + loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        # combined loss and calculate gradients        
+        loss_G = loss_G_A + loss_G_B + loss_cycle_A + loss_cycle_B + loss_idt_A + loss_idt_B
         loss_G.backward()
         return loss_G, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B
 

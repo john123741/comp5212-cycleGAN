@@ -48,8 +48,9 @@ if __name__ == '__main__':
     path_b = os.path.join('dataset', datapath, 'trainB')
 
     downscaler = transforms.Compose([
-        transforms.Resize(args.resize),
+        transforms.Resize(args.resize),        
         transforms.ToTensor(),
+        transforms.Normalize((.5,.5,.5), (.5,.5,.5)),
     ])
     dataA = CycleGANStandardDataset(path_a, transform=downscaler)
     dataB = CycleGANStandardDataset(path_b, transform=downscaler)
@@ -68,7 +69,8 @@ if __name__ == '__main__':
     total_iter_number = 0
 
     visualize_path = 'generated'
-    for epoch in range(fixed_learning_rate_epoches+linearly_decay_learning_rate_epoches):
+    total_epoch = fixed_learning_rate_epoches + linearly_decay_learning_rate_epoches
+    for epoch in range(total_epoch):
         model.update_learning_rate()
         for i, data in enumerate(dataloader):  # inner loop within one epoch
             real_A = data.to(device)
@@ -85,13 +87,14 @@ if __name__ == '__main__':
             # D_A and D_B
             model.set_requires_grad([model.netD_A, model.netD_B], True)
             model.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
-            loss_D_A = model.backward_D_A(real_A, fake_A)      # calculate gradients for D_A
-            loss_D_B = model.backward_D_B(real_B, fake_B)      # calculate graidents for D_B
-            model.optimizer_D.step()  # update D_A and D_B's weights   
+            loss_D_A, loss_D_A_real, loss_D_A_fake = model.backward_D_A(real_A, fake_A)      # calculate gradients for D_A
+            loss_D_B, loss_D_B_real, loss_D_B_fake = model.backward_D_B(real_B, fake_B)      # calculate graidents for D_B
+            model.optimizer_D.step()  # update D_A and D_B's weights
                         
             # log progress
             if total_iter_number % print_loss_freq == 0:
-                print("[Epoch %d] Loss G: %f Loss D: %f" % (epoch, loss_G, loss_D_A + loss_D_B))
+                print("[Epoch %d] Loss G (GA, GB, CycleA, CycleB): %f, %f, %f, %f Loss D (Ar, Af, Br, Bf): %f, %f, %f, %f" % \
+                    (epoch, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B, loss_D_A_real, loss_D_A_fake, loss_D_B_real, loss_D_B_fake))
             # save generated image
             if total_iter_number % save_generated_img == 0:
                 fig = plt.figure()
@@ -124,8 +127,8 @@ if __name__ == '__main__':
             total_iter_number += 1
 
         # save model checkpoint
-        if epoch % save_model_freq == 0:
-            output_path = os.path.join('saved', 'epoch_{}.pth'.format(epoch))
+        if epoch % save_model_freq == 0 or epoch == total_epoch - 1:
+            output_path = os.path.join('saved', '{}_epoch_{}.pth'.format(datapath, epoch))
             dump_content = {
                 'epoch': epoch,
                 'dataset': datapath,
