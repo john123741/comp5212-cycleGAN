@@ -95,7 +95,7 @@ class CycleGAN(nn.Module):
 
     def backward_G(self, real_A, real_B, fake_A, fake_B, rec_A, rec_B):
         """Calculate the loss for generators G_A and G_B"""
-        lambda_idt = 0.1
+        lambda_idt = 0.5
         lambda_A = 10
         lambda_B = 10
         # Identity loss

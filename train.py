@@ -87,8 +87,8 @@ if __name__ == '__main__':
             # D_A and D_B
             model.set_requires_grad([model.netD_A, model.netD_B], True)
             model.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
-            loss_D_A, loss_D_A_real, loss_D_A_fake = model.backward_D_A(real_A, fake_A)      # calculate gradients for D_A
-            loss_D_B, loss_D_B_real, loss_D_B_fake = model.backward_D_B(real_B, fake_B)      # calculate graidents for D_B
+            loss_D_A, loss_D_A_real, loss_D_A_fake = model.backward_D_A(real_B, fake_B)      # calculate gradients for D_A
+            loss_D_B, loss_D_B_real, loss_D_B_fake = model.backward_D_B(real_A, fake_A)      # calculate graidents for D_B
             model.optimizer_D.step()  # update D_A and D_B's weights
                         
             # log progress
