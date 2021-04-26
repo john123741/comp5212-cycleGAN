@@ -10,24 +10,15 @@ from generator import *
 from loss import *
 from model import *
 from dataset import *
+from eval import load_checkpoint, numpy_convert
 
 from PIL import Image
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader
 
-# For imshow image in matplotlib pyplot
-# input: torch tensor, output: numpy image
-def numpy_convert(tensor):
-    tensor = tensor.detach()
-    if len(tensor.shape) == 4:
-        tensor = tensor[0]
-    # clip data to a valid range
-    tensor = (tensor - tensor.min()) / (tensor.max() - tensor.min())
-    return tensor.cpu().numpy().transpose(1, 2, 0)
-
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='COMP5212 Project - CycleGAN')
+    parser = argparse.ArgumentParser(description='COMP5212 Project - CycleGAN Train.py')
     # Essential parameters
     parser.add_argument('datapath', default='apple2orange', help='The path of the dataset') 
     parser.add_argument('-d', '--device', default='cuda', type=str, help='cpu / cuda (default = cuda)')     
@@ -37,6 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--save', default=20, type=int, help='The frequency (in epoch) of saving the model (default = 20)')
     parser.add_argument('--print', default=10, type=int, help='The frequency (in iter) of printing loss (default = 10)') 
     parser.add_argument('--generate', default=100, type=int, help='The frequency (in iter) of saving generated images (default = 100)') 
+    parser.add_argument('-r', '--resume', default='', type=str, help='The path to load the .pth model')     
     # Trivial parameters for debugging
     parser.add_argument('--resize', default=64, type=int, help='The dimension to resize (used in prototype only)') 
     args = parser.parse_args()
@@ -44,6 +36,7 @@ if __name__ == '__main__':
     # loading parameters
     device = args.device
     datapath = args.datapath
+    resume = args.resume
     path_a = os.path.join('dataset', datapath, 'trainA')
     path_b = os.path.join('dataset', datapath, 'trainB')
 
@@ -64,13 +57,17 @@ if __name__ == '__main__':
 
     dataloader = DataLoader(dataA, batch_size=batch_size, shuffle=True)
     dataloaderB = DataLoader(dataB, batch_size=batch_size, shuffle=True)
+    last_epoch = 0
     model = CycleGAN(device=device)
+    if resume != '':
+        model, last_epoch, _ = load_checkpoint(model, resume)
+        print('Resume from epoch: %d' % last_epoch)
 
     total_iter_number = 0
 
     visualize_path = 'generated'
     total_epoch = fixed_learning_rate_epoches + linearly_decay_learning_rate_epoches
-    for epoch in range(total_epoch):
+    for epoch in range(last_epoch, total_epoch):
         model.update_learning_rate()
         for i, data in enumerate(dataloader):  # inner loop within one epoch
             real_A = data.to(device)
