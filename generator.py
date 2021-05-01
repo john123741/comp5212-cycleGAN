@@ -177,6 +177,7 @@ class UNet(nn.Module):
             attr, attr_map = self.l_encoder(x)
             x = torch.cat([x, conv3, attr_map], dim=1)
         else:
+            attr = None
             x = torch.cat([x, conv3], dim=1)
 
         deconv1 = self.up1(x)
