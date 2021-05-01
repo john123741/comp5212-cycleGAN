@@ -75,9 +75,35 @@ def double_conv(in_channels, out_channels):
         nn.ReLU(inplace=True)
     )
 
+# Convert the latent vector in the generator to disentangled attributes
+class LatentEncoder(nn.Module):
+    def __init__(self, input_size, num_attr):
+        super().__init__()
+        final_size = 256 * (input_size // 4) * (input_size // 4)
+        self.num_attr = num_attr
+        self.encoder = nn.Sequential(
+            nn.Conv2d(256, 256, 3, stride=2, padding=1),
+            nn.InstanceNorm2d(256, affine=False, track_running_stats=False),
+            nn.ReLU(True),
+            nn.Conv2d(256, 256, 3, stride=2, padding=1),
+            nn.InstanceNorm2d(256, affine=False, track_running_stats=False),
+            nn.ReLU(True),
+            nn.Flatten(),
+            nn.Linear(final_size, num_attr),
+            nn.Sigmoid(), # => [0, 1]
+        )
+
+        self.upsampler = nn.Upsample((input_size, input_size))
+    
+    def forward(self, x):
+        out = self.encoder(x)
+        out_map = out.unsqueeze(-1).unsqueeze(-1) # n, c, 1, 1        
+        out_map = self.upsampler(out_map)
+        return out, out_map
+
 class UNet(nn.Module):
 
-    def __init__(self):
+    def __init__(self, latent_encoder=None):
         super().__init__()
                 
         self.down1 = nn.Sequential(
@@ -102,9 +128,15 @@ class UNet(nn.Module):
         self.t3 = double_conv(256, 256)
         self.t4 = double_conv(256, 256)       
         self.t5 = double_conv(256, 256)
-        self.t6 = double_conv(256, 256)       
+        self.t6 = double_conv(256, 256)      
+
+        if not (latent_encoder is None):
+            latent_attr = latent_encoder.num_attr 
+        else:
+            latent_attr = 0
+
         self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(256 + 256, 256, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True),
+            nn.ConvTranspose2d(256 + 256 + latent_attr, 256, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True),
             nn.InstanceNorm2d(256, affine=False, track_running_stats=False),
             nn.ReLU(True)
         )
@@ -123,8 +155,12 @@ class UNet(nn.Module):
             nn.Conv2d(64, 3, kernel_size=7, padding=0),
             nn.Tanh()
         )
-        
-        
+
+        self.latent_encoding = False
+        if latent_encoder:
+            self.latent_encoding = True
+            self.l_encoder = latent_encoder
+    
     def forward(self, x):
         conv1 = self.down1(x)
         conv2 = self.down2(conv1)
@@ -136,13 +172,41 @@ class UNet(nn.Module):
         x = self.t4(x)
         x = self.t5(x)
         x = self.t6(x)
-        
-        x = torch.cat([x, conv3], dim=1)
+
+        if self.latent_encoding:
+            attr, attr_map = self.l_encoder(x)
+            x = torch.cat([x, conv3, attr_map], dim=1)
+        else:
+            x = torch.cat([x, conv3], dim=1)
+
         deconv1 = self.up1(x)
         x = torch.cat([deconv1, conv2], dim=1)
         deconv2 = self.up2(x)
         x = torch.cat([deconv2, conv1], dim=1)
         deconv3 = self.up3(x)
         out = self.out(deconv3)
-        return out
-        
+        return out, attr
+    
+    def forward_with_attr(self, x, attr):
+        conv1 = self.down1(x)
+        conv2 = self.down2(conv1)
+        conv3 = self.down3(conv2)
+
+        x = self.t1(conv3)
+        x = self.t2(x)
+        x = self.t3(x)
+        x = self.t4(x)
+        x = self.t5(x)
+        x = self.t6(x)
+
+        attr = attr.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+        attr_map = self.l_encoder.upsampler(attr)
+
+        x = torch.cat([x, conv3, attr_map], dim=1)
+        deconv1 = self.up1(x)
+        x = torch.cat([deconv1, conv2], dim=1)
+        deconv2 = self.up2(x)
+        x = torch.cat([deconv2, conv1], dim=1)
+        deconv3 = self.up3(x)
+        out = self.out(deconv3)
+        return out, attr        

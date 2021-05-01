@@ -28,6 +28,8 @@ def load_checkpoint(model, filename):
         model.netG_B.load_state_dict(content['net_G_B'])
         model.netD_A.load_state_dict(content['net_D_A'])
         model.netD_B.load_state_dict(content['net_D_B'])
+        if 'net_E' in content and model.l_encoder is not None:
+            model.l_encoder.load_state_dict(content['net_E'])
         epoch = content['epoch']
         datapath = content['dataset']
     return model, epoch, datapath
@@ -40,7 +42,8 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch_size', default=16, type=int, help='Batch size (default = 2)')    
     parser.add_argument('-r', '--resume', default='', type=str, help='The path to load the .pth model') 
     parser.add_argument('-o', '--output', default='generated', type=str, help='The path to save the generated images') 
-    parser.add_argument('--resize', default=256, type=int, help='The dimension to resize (used in prototype only)')     
+    parser.add_argument('--resize', default=256, type=int, help='The dimension to resize (used in prototype only)')   
+    parser.add_argument('--num_attr', default=0, type=int, help='The number of attributes (used in prototype only)')     
     args = parser.parse_args()
 
     # loading parameters
@@ -48,8 +51,10 @@ if __name__ == '__main__':
     device = args.device
     resume = args.resume
     output_path = args.output
+    num_attr = args.num_attr
+
     tform = transforms.Compose([
-        transforms.Resize(args.resize),        
+        transforms.Resize(args.resize),
         transforms.ToTensor(),
         transforms.Normalize((.5,.5,.5), (.5,.5,.5)),
     ])
@@ -61,8 +66,8 @@ if __name__ == '__main__':
     dataB = CycleGANTestDataset(path_b, transform=tform)
 
     dataloaderA = DataLoader(dataA, batch_size=batch_size, shuffle=True)
-    dataloaderB = DataLoader(dataB, batch_size=batch_size, shuffle=True)
-    model = CycleGAN(device=device)
+    dataloaderB = DataLoader(dataB, batch_size=batch_size, shuffle=True)    
+    model = CycleGAN(device=device, imgsize=(resize, resize), num_attr=num_attr)
     if resume == '':
         print('You must specify the pretrained model with --resume <pth>')
         exit(1)
@@ -80,10 +85,10 @@ if __name__ == '__main__':
     for i, (img, names) in enumerate(dataloaderA):
         with torch.no_grad():
             real_A = img.to(device)
-            fake_B, rec_A = model.forward_A(real_A)
+            fake_B, rec_A, attr_AB, attr_ABA = model.forward_A(real_A)
             for i in range(len(names)):
                 outfilepath = os.path.join(output_path_A, names[i])
-                save_image(numpy_convert(img[i], to_numpy=False), outfilepath)            
+                save_image(numpy_convert(fake_B[i], to_numpy=False), outfilepath)            
                 cnt += 1
             print('A => B (%s): %d / %d' % (output_path_A, cnt, len(dataloaderA.dataset)), end='\r')
     print('A => B (%s): %d / %d' % (output_path_A, cnt, len(dataloaderA.dataset)))
@@ -93,10 +98,10 @@ if __name__ == '__main__':
     for i, (img, names) in enumerate(dataloaderB):
         with torch.no_grad():
             real_B = img.to(device)
-            fake_A, rec_B = model.forward_B(real_B)
+            fake_A, rec_B, attr_BA, attr_BAB = model.forward_B(real_B)
             for i in range(len(names)):
                 outfilepath = os.path.join(output_path_B, names[i])
-                save_image(numpy_convert(img[i], to_numpy=False), outfilepath)  
+                save_image(numpy_convert(fake_A[i], to_numpy=False), outfilepath)  
                 cnt += 1
             print('B => A (%s): %d / %d' % (output_path_A, cnt, len(dataloaderB.dataset)), end='\r')
     print('B => A (%s): %d / %d' % (output_path_A, cnt, len(dataloaderB.dataset)))

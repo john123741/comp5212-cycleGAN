@@ -1,4 +1,4 @@
-from generator import ResnetGenerator, UNet
+from generator import ResnetGenerator, UNet, LatentEncoder
 from discriminator import NLayerDiscriminator
 from loss import GANLoss
 from torch.optim import lr_scheduler
@@ -17,11 +17,16 @@ def init_net(m):
             nn.init.constant_(m.bias.data, 0.0)
 
 class CycleGAN(nn.Module):
-    def __init__(self, device, imgsize=(256, 256), isTrain=True):
+    def __init__(self, device, imgsize, isTrain=True, num_attr=0):
         super(CycleGAN, self).__init__()
-        self.netG_A = UNet().to(device) #ResnetGenerator(3, 3).to(device)
+        self.l_encoder = None
+        if num_attr > 0:
+            input_size = imgsize[0] // 4
+            self.l_encoder = LatentEncoder(input_size=input_size, num_attr=num_attr).to(device)
+
+        self.netG_A = UNet(latent_encoder=self.l_encoder).to(device) #ResnetGenerator(3, 3).to(device)
         self.netG_A.apply(init_net)
-        self.netG_B = UNet().to(device) #ResnetGenerator(3, 3).to(device)
+        self.netG_B = UNet(latent_encoder=self.l_encoder).to(device) #ResnetGenerator(3, 3).to(device)
         self.netG_B.apply(init_net)
 
         if isTrain:
@@ -36,6 +41,7 @@ class CycleGAN(nn.Module):
             self.criterionGAN = GANLoss()
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
+            self.criterionAttr = torch.nn.BCELoss()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()),
                                                 lr=0.0002, betas=(0.5, 0.999))
@@ -46,8 +52,7 @@ class CycleGAN(nn.Module):
             fixed_learning_rate_epoches = 100
             linearly_decay_learning_learning_rate_epoches = 100
             def learning_rate_lambda(epoch):
-                lr_l = 1.0 - max(0, epoch - fixed_learning_rate_epoches) / float(
-                    linearly_decay_learning_learning_rate_epoches + 1)
+                lr_l = 1.0 - max(0, epoch - fixed_learning_rate_epoches) / float(linearly_decay_learning_learning_rate_epoches + 1)
                 return lr_l
 
             self.schedulers = [lr_scheduler.LambdaLR(optimizer, lr_lambda=learning_rate_lambda) for optimizer in self.optimizers]
@@ -57,21 +62,29 @@ class CycleGAN(nn.Module):
             scheduler.step()
 
     def forward(self, real_A, real_B):
-        fake_B = self.netG_A(real_A)  # G_A(A)
-        rec_A = self.netG_B(fake_B)   # G_B(G_A(A))
-        fake_A = self.netG_B(real_B)  # G_B(B)
-        rec_B = self.netG_A(fake_A)   # G_A(G_B(B))
-        return fake_B, rec_A, fake_A, rec_B
+        fake_B, attr_AB = self.netG_A(real_A)  # G_A(A)
+        rec_A, attr_ABA = self.netG_B(fake_B)   # G_B(G_A(A))
+        fake_A, attr_BA = self.netG_B(real_B)  # G_B(B)
+        rec_B, attr_BAB = self.netG_A(fake_A)   # G_A(G_B(B))
+        return fake_B, rec_A, fake_A, rec_B, attr_AB, attr_ABA, attr_BA, attr_BAB
 
     def forward_A(self, real_A):
-        fake_B = self.netG_A(real_A)  # G_A(A)
-        rec_A = self.netG_B(fake_B)   # G_B(G_A(A))
-        return fake_B, rec_A
+        fake_B, attr_AB = self.netG_A(real_A)  # G_A(A)
+        rec_A, attr_ABA = self.netG_B(fake_B)   # G_B(G_A(A))
+        return fake_B, rec_A, attr_AB, attr_ABA
 
     def forward_B(self, real_B):
-        fake_A = self.netG_B(real_B)  # G_B(B)
-        rec_B = self.netG_A(fake_A)   # G_A(G_B(B))
-        return fake_A, rec_B       
+        fake_A, attr_BA = self.netG_B(real_B)  # G_B(B)
+        rec_B, attr_BAB = self.netG_A(fake_A)   # G_A(G_B(B))
+        return fake_A, rec_B, attr_BA, attr_BAB
+
+    def forward_A_with_attr(self, real_A, attr):
+        fake_B, attr_AB = self.netG_A.forward_with_attr(real_A, attr)
+        return fake_B, attr_AB
+
+    def forward_B_with_attr(self, real_B, attr):
+        fake_A, attr_BA = self.netG_B.forward_with_attr(real_B, attr)
+        return fake_A, attr_BA     
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -103,22 +116,34 @@ class CycleGAN(nn.Module):
         loss_D_B, loss_D_B_real, loss_D_B_fake = self.backward_D_basic(self.netD_B, real_A, fake_A)
         return loss_D_B, loss_D_B_real, loss_D_B_fake
 
-    def backward_G(self, real_A, real_B, fake_A, fake_B, rec_A, rec_B):
+    def backward_G(self, real_A, real_B, fake_A, fake_B, rec_A, rec_B, attr_AB, attr_ABA, attr_BA, attr_BAB, attr_A_label=None, attr_B_label=None):
         """Calculate the loss for generators G_A and G_B"""
         lambda_idt = 0.5
         lambda_A = 10
         lambda_B = 10
+        lambda_attr = 1
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            idt_A = self.netG_A(real_B)
+            idt_A, _ = self.netG_A(real_B)
             loss_idt_A = self.criterionIdt(idt_A, real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            idt_B = self.netG_B(real_A)
+            idt_B, _ = self.netG_B(real_A)
             loss_idt_B = self.criterionIdt(idt_B, real_A) * lambda_A * lambda_idt
         else:
             loss_idt_A = 0
             loss_idt_B = 0
+
+        # attribute loss
+        loss_attr = 0
+        if self.l_encoder:
+            if attr_A_label is None or attr_B_label is None:
+                raise Exception('Non-zero attributes but no label input.')
+            attr_loss1 = self.criterionAttr(attr_AB, attr_A_label)
+            attr_loss2 = self.criterionAttr(attr_BA, attr_B_label)
+            attr_loss3 = self.criterionAttr(attr_ABA, attr_A_label)
+            attr_loss4 = self.criterionAttr(attr_BAB, attr_B_label)            
+            loss_attr = (attr_loss1 + attr_loss2 + 0.5 * (attr_loss3 + attr_loss4)) * lambda_attr
 
         # GAN loss D_A(G_A(A))
         loss_G_A = self.criterionGAN(self.netD_A(fake_B), True)
@@ -129,9 +154,9 @@ class CycleGAN(nn.Module):
         # Backward cycle loss || G_A(G_B(B)) - B||
         loss_cycle_B = self.criterionCycle(rec_B, real_B) * lambda_B
         # combined loss and calculate gradients        
-        loss_G = loss_G_A + loss_G_B + loss_cycle_A + loss_cycle_B + loss_idt_A + loss_idt_B
+        loss_G = loss_G_A + loss_G_B + loss_cycle_A + loss_cycle_B + loss_idt_A + loss_idt_B + loss_attr
         loss_G.backward()
-        return loss_G, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B
+        return loss_G, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B, loss_attr
 
     def set_requires_grad(self, nets, requires_grad=False):
         """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
