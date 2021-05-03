@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
     dataloaderA = DataLoader(dataA, batch_size=batch_size, shuffle=True)
     dataloaderB = DataLoader(dataB, batch_size=batch_size, shuffle=True)    
-    model = CycleGAN(device=device, imgsize=(resize, resize), num_attr=num_attr)
+    model = CycleGAN(device=device, imgsize=(args.resize, args.resize), num_attr=num_attr)
     if resume == '':
         print('You must specify the pretrained model with --resume <pth>')
         exit(1)
