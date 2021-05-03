@@ -20,7 +20,7 @@ def numpy_convert(tensor, to_numpy=True):
         tensor = tensor.numpy().transpose(1, 2, 0)
     return tensor
 
-def load_checkpoint(model, filename):
+def load_checkpoint(model, filename, allow_overwrite=True):
     with open(filename, 'rb') as f:
         print('Loading model checkpoint: %s' % filename)
         content = pickle.load(f)
@@ -28,11 +28,17 @@ def load_checkpoint(model, filename):
         model.netG_B.load_state_dict(content['net_G_B'])
         model.netD_A.load_state_dict(content['net_D_A'])
         model.netD_B.load_state_dict(content['net_D_B'])
-        if 'net_E' in content and model.l_encoder is not None:
-            model.l_encoder.load_state_dict(content['net_E'])
+        num_attr = 0
+        if 'num_attr' in content and content['num_attr'] > 0:
+            num_attr = content['num_attr']
+            if allow_overwrite:
+                model.num_attr = num_attr
+                model.netG_A.num_attr = num_attr
+                model.netG_B.num_attr = num_attr
+                print('Write num_attr to', num_attr)
         epoch = content['epoch']
         datapath = content['dataset']
-    return model, epoch, datapath
+    return model, epoch, datapath, num_attr
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='COMP5212 Project - CycleGAN Eval.py')
@@ -54,7 +60,7 @@ if __name__ == '__main__':
     num_attr = args.num_attr
 
     tform = transforms.Compose([
-        transforms.Resize(args.resize),
+        transforms.Resize((args.resize, args.resize)),
         transforms.ToTensor(),
         transforms.Normalize((.5,.5,.5), (.5,.5,.5)),
     ])
@@ -71,7 +77,7 @@ if __name__ == '__main__':
     if resume == '':
         print('You must specify the pretrained model with --resume <pth>')
         exit(1)
-    model, epsilon, _ = load_checkpoint(model, resume)
+    model, epsilon, _, num_attr = load_checkpoint(model, resume)
 
     # generate output path for testA and testB
     output_path_A = os.path.join(output_path, 'testA')

@@ -21,8 +21,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='COMP5212 Project - CycleGAN Train.py')
     # Essential parameters
     parser.add_argument('datapath', default='apple2orange', help='The path of the dataset') 
-    parser.add_argument('--attr1', default='', type=str, help='The file of the attributes labels (for A)')
-    parser.add_argument('--attr2', default='', type=str, help='The file of the attributes labels (for B)')
+    parser.add_argument('-a', '--num_attr', default=0, type=int, help='The number of continuous attributes to represent (default = 0)')
     parser.add_argument('-d', '--device', default='cuda', type=str, help='cpu / cuda (default = cuda)')     
     parser.add_argument('-b', '--batch_size', default=16, type=int, help='Batch size (default = 2)')    
     parser.add_argument('--f_epoch', default=100, type=int, help='Number of epochs for fixed learning rate (default = 100)') 
@@ -36,8 +35,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # loading parameters
-    attr_path_A = args.attr1
-    attr_path_B = args.attr2
+    num_attr = args.num_attr
     device = args.device
     datapath = args.datapath
     resume = args.resume
@@ -49,11 +47,8 @@ if __name__ == '__main__':
         transforms.ToTensor(),
         transforms.Normalize((.5,.5,.5), (.5,.5,.5)),
     ])
-    assert (not attr_path_A and not attr_path_B) or (attr_path_A and attr_path_B), "For representation learning, both --attr1 and --attr2 must be filled. Only one found."
-    dataA = CycleGANStandardDataset(path_a, attr_path=attr_path_A, transform=downscaler)
-    dataB = CycleGANStandardDataset(path_b, attr_path=attr_path_B, transform=downscaler)
-    num_attr = dataA.num_attr
-    assert dataA.num_attr == dataB.num_attr, "The two attribute lists A (%d) and B (%d) have different lengths" % (dataA.num_attr, dataB.num_attr)    
+    dataA = CycleGANStandardDataset(path_a, transform=downscaler)
+    dataB = CycleGANStandardDataset(path_b, transform=downscaler)   
 
     batch_size = args.batch_size
     fixed_learning_rate_epoches = args.f_epoch
@@ -67,8 +62,10 @@ if __name__ == '__main__':
     last_epoch = 0
     model = CycleGAN(device=device, imgsize=(args.resize, args.resize), num_attr=num_attr)
     if resume != '':
-        model, last_epoch, _ = load_checkpoint(model, resume)
+        model, last_epoch, _, num_attr_loaded = load_checkpoint(model, resume)
         print('Resume from epoch: %d' % last_epoch)
+        if num_attr_loaded != num_attr:
+            print('Warning: loaded num_attr (%d) is different to targeted num_attr (%d)' % (num_attr_loaded, num_attr))
 
     total_iter_number = 0
 
@@ -77,45 +74,33 @@ if __name__ == '__main__':
     for epoch in range(last_epoch, total_epoch):
         model.update_learning_rate()
         for i, data in enumerate(dataloaderA):  # inner loop within one epoch
-            if attr_path_A and attr_path_B:
-                imgA, labelA = data
-                real_A = imgA.to(device)
-                labelA = labelA.to(device)
-                imgB, labelB = next(iter(dataloaderB))
-                real_B = imgB.to(device)
-                labelB = labelB.to(device)
-            else:
-                real_A = data.to(device)
-                real_B = next(iter(dataloaderB)).to(device)
-                labelA, labelB = None, None
+            real_A = data.to(device)
+            real_B = next(iter(dataloaderB)).to(device)
             
             # forward (compute fake image and reconstruction images)
             fake_B, rec_A, fake_A, rec_B, attr_AB, attr_ABA, attr_BA, attr_BAB = model.forward(real_A, real_B)
             # G_A and G_B
             model.set_requires_grad([model.netD_A, model.netD_B], False)  # Ds require no gradients when optimizing Gs
             model.optimizer_G.zero_grad()  # set G_A and G_B's gradients to zero
-            loss_G_list = model.backward_G(real_A, real_B, fake_A, fake_B, rec_A, rec_B, attr_AB, attr_ABA, attr_BA, attr_BAB, labelA, labelB)
-            loss_G, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B, loss_attr = loss_G_list
+            loss_G_list = model.backward_G(real_A, real_B, fake_A, fake_B, rec_A, rec_B)
+            loss_G, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B = loss_G_list
             model.optimizer_G.step()       # update G_A and G_B's weights
             # D_A and D_B
             model.set_requires_grad([model.netD_A, model.netD_B], True)
             model.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
             loss_D_A, loss_D_A_real, loss_D_A_fake = model.backward_D_A(real_B, fake_B)      # calculate gradients for D_A
-            loss_D_B, loss_D_B_real, loss_D_B_fake = model.backward_D_B(real_A, fake_A)      # calculate graidents for D_B
-            model.optimizer_D.step()  # update D_A and D_B's weights
+            loss_D_B, loss_D_B_real, loss_D_B_fake = model.backward_D_B(real_A, fake_A)      # calculate graidents for D_B            
+            # Q
+            loss_attr = 0
+            if num_attr > 0:
+                loss_attr = model.backward_Q(fake_A.detach(), fake_B.detach(), attr_AB.detach(), attr_BA.detach()) 
+            # update D_A and D_B's weights
+            model.optimizer_D.step()                    
                         
             # log progress
             if total_iter_number % print_loss_freq == 0:
                 print("[Epoch %d] Loss G (GA, GB, CycleA, CycleB): %f, %f, %f, %f Loss D (Ar, Af, Br, Bf): %f, %f, %f, %f Loss Attr: %f" % \
                     (epoch, loss_G_A, loss_G_B, loss_cycle_A, loss_cycle_B, loss_D_A_real, loss_D_A_fake, loss_D_B_real, loss_D_B_fake, loss_attr))
-                # compute accuracy                
-                if attr_path_A and attr_path_B:                    
-                    with torch.no_grad():
-                        bin_attr_AB = torch.where(attr_AB >= 0.5, 1, 0)
-                        bin_attr_BA = torch.where(attr_BA >= 0.5, 1, 0)
-                        acc_AB = (labelA == bin_attr_AB).sum() / torch.numel(labelA)
-                        acc_BA = (labelB == bin_attr_BA).sum() / torch.numel(labelB)
-                    print('Attributes Classification Accuracy - A->B: %f, B->A: %f' % (acc_AB.item(), acc_BA.item()))
 
             # save generated image
             if total_iter_number % save_generated_img == 0:
@@ -158,7 +143,7 @@ if __name__ == '__main__':
                 'net_G_B': model.netG_B.state_dict(),
                 'net_D_A': model.netD_A.state_dict(),
                 'net_D_B': model.netD_B.state_dict(),
-                'net_E': model.l_encoder.state_dict() if model.l_encoder else None,
+                'num_attr': num_attr,
             }
             with open(output_path, 'wb') as f:
                 pickle.dump(dump_content, f)

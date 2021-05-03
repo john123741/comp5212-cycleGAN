@@ -23,7 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--device', default='cpu', type=str, help='cpu / cuda (default = cpu)')   
 
     parser.add_argument('--resize', default=256, type=int, help='The dimension to resize (used in prototype only)')
-    parser.add_argument('--num_attr', default=12, type=int, help='The number of attributes (used in prototype only)')       
+    parser.add_argument('--num_attr', default=5, type=int, help='The number of attributes (used in prototype only)')       
     args = parser.parse_args()
 
     # loading parameters
@@ -51,12 +51,7 @@ if __name__ == '__main__':
 
     model = CycleGAN(device=device, imgsize=(resize, resize), num_attr=num_attr)
     assert resume != '', "You must specify the pretrained model with --resume <pth>"
-    model, epsilon, _ = load_checkpoint(model, resume)
-
-
-    # hard-code so far
-    hardcode_attr = ['Bangs','Blond_Hair','Brown_Hair','Eyeglasses','Mouth_Slightly_Open','Narrow_Eyes','Smiling','Straight_Hair','Wavy_Hair','Wearing_Earrings',
-        'Wearing_Hat','Wearing_Necklace']
+    model, epsilon, _, num_attr = load_checkpoint(model, resume)
 
     if latent == '': # No latent => perform attribute classification
         with torch.no_grad():
@@ -68,25 +63,25 @@ if __name__ == '__main__':
             # print out the attributes
             attr = attr.squeeze(0)
             print('Attr:')
-            for i in range(len(hardcode_attr)):
-                print('%s: %f' % (hardcode_attr[i], attr[i].item()))
+            for i in range(len(attr)):
+                print(attr[i].item(), end=' ')
             plt.imshow(numpy_convert(fake.squeeze(0)))
             plt.show()
     else: # latent exists => modify latent and generate new image
         assert os.path.isfile(latent), "CSV file not found: %s" % os.path.isfile(latent)
-        df = pd.read_csv(latent)
+        df = pd.read_csv(latent, header=None)
         attr = torch.from_numpy(df.iloc[0].to_numpy(dtype=np.float32))
         with torch.no_grad():
             img = img.unsqueeze(0).to(device)
             if input_type == 'A':
-                fake, attr = model.forward_A_with_attr(img, attr)
+                fake = model.forward_A_with_attr(img, attr)
             else: # B
-                fake, attr = model.forward_B_with_attr(img, attr)
+                fake = model.forward_B_with_attr(img, attr)
             # print out the attributes
             attr = attr.squeeze(0)
             print('Attr:')
-            for i in range(len(hardcode_attr)):
-                print('%s: %f' % (hardcode_attr[i], attr[i].item()))                     
+            for i in range(len(attr)):
+                print(attr[i].item(), end=' ')                   
             # plot the new generated output
             plt.imshow(numpy_convert(fake.squeeze(0)))
             plt.show()       
