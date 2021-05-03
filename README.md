@@ -31,7 +31,6 @@ python train.py --device cpu <dataset name>
 ### Representation Learning
 In the middle of UNet and discriminator, there is an additional section to enable unsupervised representation disentanglement. This function can be switched on/off by the program caller, with the `-a` or `--num_attr` argument.
 
-For example, the following call will **train the generators with a ground-truth attribute list, loaded from `list_attr_celeba.csv` and `list_attr_cartoon.csv`**
 ```
 python train.py photo2cartoon --resize 256 --batch_size 4 --num_attr 5
 ```
