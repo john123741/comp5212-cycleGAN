@@ -51,7 +51,7 @@ if __name__ == '__main__':
 
     model = CycleGAN(device=device, imgsize=(resize, resize), num_attr=num_attr)
     assert resume != '', "You must specify the pretrained model with --resume <pth>"
-    model, epsilon, _, num_attr = load_checkpoint(model, resume)
+    model, epsilon, _, num_attr = load_checkpoint(model, resume, device=device)
 
     if latent == '': # No latent => perform attribute classification
         with torch.no_grad():

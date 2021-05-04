@@ -1,6 +1,5 @@
 import os
 import torch
-import pickle
 import argparse
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -62,7 +61,7 @@ if __name__ == '__main__':
     last_epoch = 0
     model = CycleGAN(device=device, imgsize=(args.resize, args.resize), num_attr=num_attr)
     if resume != '':
-        model, last_epoch, _, num_attr_loaded = load_checkpoint(model, resume)
+        model, last_epoch, _, num_attr_loaded = load_checkpoint(model, resume, device=device)
         print('Resume from epoch: %d' % last_epoch)
         if num_attr_loaded != num_attr:
             print('Warning: loaded num_attr (%d) is different to targeted num_attr (%d)' % (num_attr_loaded, num_attr))
@@ -145,9 +144,8 @@ if __name__ == '__main__':
                 'net_D_B': model.netD_B.state_dict(),
                 'num_attr': num_attr,
             }
-            with open(output_path, 'wb') as f:
-                pickle.dump(dump_content, f)
-                print('Model checkpoint saved as: %s' % output_path)
+            torch.save(dump_content, output_path)        
+            print('Model checkpoint saved as: %s' % output_path)
             
 
 

@@ -1,5 +1,4 @@
 import os
-import pickle
 import argparse
 import matplotlib.pyplot as plt
 from torchvision import transforms
@@ -20,14 +19,15 @@ def numpy_convert(tensor, to_numpy=True):
         tensor = tensor.numpy().transpose(1, 2, 0)
     return tensor
 
-def load_checkpoint(model, filename, allow_overwrite=True):
+def load_checkpoint(model, filename, allow_overwrite=True, device='cuda'):
     with open(filename, 'rb') as f:
         print('Loading model checkpoint: %s' % filename)
-        content = pickle.load(f)
+        content = torch.load(f, map_location='cpu')
         model.netG_A.load_state_dict(content['net_G_A'])
         model.netG_B.load_state_dict(content['net_G_B'])
         model.netD_A.load_state_dict(content['net_D_A'])
         model.netD_B.load_state_dict(content['net_D_B'])
+        model = model.to(device)
         num_attr = 0
         if 'num_attr' in content and content['num_attr'] > 0:
             num_attr = content['num_attr']
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     if resume == '':
         print('You must specify the pretrained model with --resume <pth>')
         exit(1)
-    model, epsilon, _, num_attr = load_checkpoint(model, resume)
+    model, epsilon, _, num_attr = load_checkpoint(model, resume, device=device)
 
     # generate output path for testA and testB
     output_path_A = os.path.join(output_path, 'testA')

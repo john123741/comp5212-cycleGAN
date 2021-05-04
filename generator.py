@@ -138,14 +138,14 @@ class UNet(nn.Module):
             nn.ReLU(True)
         )
         self.up2 = nn.Sequential(            
-            #nn.ConvTranspose2d(128 + 128, 128, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True),
+            #nn.ConvTranspose2d(256 + 128, 128, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True),
             nn.Upsample(scale_factor=(2, 2)),
             nn.Conv2d(256 + 128, 128, kernel_size=3, stride=1, padding=1, bias=True),
             nn.InstanceNorm2d(128, affine=False, track_running_stats=False),
             nn.ReLU(True)
         )
         self.up3 = nn.Sequential(            
-            #nn.ConvTranspose2d(128 + 128, 64, kernel_size=3, stride=1, padding=1, output_padding=0, bias=True),
+            #nn.ConvTranspose2d(128 + 64, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True),
             nn.Upsample(scale_factor=(2, 2)),
             nn.Conv2d(128 + 64, 64, kernel_size=3, stride=1, padding=1, bias=True),
             nn.InstanceNorm2d(64, affine=False, track_running_stats=False),
